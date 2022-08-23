@@ -6,7 +6,7 @@
 
 NQ ( Nats Queue ) is Go package for queuing and processing jobs in background with workers. Based on [nats](https://nats.io/) with a focus on cancel-ability of enqueued jobs.
 
-NQ requires nats-server with jetstream support.
+NQ requires nats-server version that supports both jetstream support and key-value store
 
 **How does it work?:**
 
