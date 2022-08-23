@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dumbmachine/nq"
-	"github.com/nats-io/nats.go"
 )
 
 type UrlPayload struct {
@@ -49,8 +48,6 @@ func main() {
 	switch appType {
 	case "pub":
 		{
-			// TODO: Defer closing of publish client
-			log.Println("Startup publisher ...")
 			client := nq.NewPublishClient(nq.NatsClientOpt{
 				Addr: "nats://127.0.0.1:4222",
 			}, nq.NoAuthentcation(),
@@ -74,29 +71,15 @@ func main() {
 			} else {
 				log.Printf("err=%s", err)
 			}
-
-			// Cleanup
-			// defer func() {
-			// 	client.DeleteQueue(QueueDev)
-			// 	defer client.Close()
-			// }()
-
 		}
 	case "sub":
 		{
-			log.Println("Startup subscriber ...")
-
-			var ErrSkipMe = errors.New("an error that does not require retrial")
-
 			srv := nq.NewServer(nq.NatsClientOpt{
-				Addr: nats.DefaultURL,
-				// Addr:          "nats://127.0.0.1:4222",
+				// Addr: nats.DefaultURL,
+				Addr:          "nats://127.0.0.1:4222",
 				ReconnectWait: time.Second * 2,
 				MaxReconnects: 100,
 			}, nq.Config{
-				IsFailureFn: func(err error) bool {
-					return errors.Is(err, ErrSkipMe)
-				},
 				ServerName:  nq.GenerateServerName(),
 				Concurrency: 1,
 				LogLevel:    nq.InfoLevel,

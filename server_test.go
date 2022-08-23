@@ -30,6 +30,7 @@ func RunServerWithOptions(opts *server.Options) *server.Server {
 	return natsserver.RunServer(opts)
 }
 
+// Base flow testing
 func TestServerRun(t *testing.T) {
 	s := RunServerOnPort(TEST_PORT)
 	s.EnableJetStream(&server.JetStreamConfig{})
@@ -72,6 +73,7 @@ func TestServerRun(t *testing.T) {
 
 }
 
+// Test if a worker-server reconnects to nats-server after disconnect
 func TestServerReconnect(t *testing.T) {
 	s := RunServerOnPort(TEST_PORT)
 	s.EnableJetStream(&server.JetStreamConfig{})

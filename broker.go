@@ -138,6 +138,7 @@ func (n *NatsBroker) ConnectoQueue(q *Queue) error {
 	return nil
 }
 
+// TODO: Allow users to specify `forceReRegister` as a boolean
 // NewNatsBroker returns a new instance of NatsBroker.
 func NewNatsBroker(conf NatsClientOpt, opt ClientOption, natsConnectionClosed chan struct{}, forceReRegister chan struct{}) (*NatsBroker, error) {
 	opt.NatsOption = append(opt.NatsOption,
