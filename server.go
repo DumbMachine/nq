@@ -107,6 +107,7 @@ var ErrTaskIDEmpty = errors.New("nq: task id cannot be empty")
 var ErrInvalidTaskPayload = errors.New("invalid task payload") // Happens when malformed data is sent to task-stream
 var ErrTaskNotFound = errors.New("task not found")
 var ErrCannotCancelDeletedTask = errors.New("deleted task cannot be cancelled") // trying to cancel an already cancelled task
+var ErrNonCancellableState = errors.New("cannot cancel task, in uncancellable state")
 
 var serverStates = []string{
 	"new",
@@ -275,7 +276,7 @@ func (srv *Server) listenForDisconnect() {
 	go func() {
 		for {
 			<-srv.natsConnectionClosed
-			srv.logger.Error("Disconnected from nats")
+			srv.logger.Error("Disconnected from nats, shutting down")
 			srv.signals <- unix.SIGINT
 			return
 		}

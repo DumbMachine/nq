@@ -36,7 +36,7 @@ type TaskPayload struct {
 
 // Possible task statuses
 const (
-	// waiting for task to be recieved by worker
+	// waiting for task to be received by worker
 	Pending = iota
 
 	// task is being processed by a worker
@@ -92,30 +92,32 @@ type TaskMessage struct {
 	// PubAck is an ack received after successfully publishing a message.
 	// NatsAck nats.PubAck
 
-	// Current
+	// Current retry count
+	//
+	// autofilled
 	CurrentRetry int
 
 	// Total number of retries possible for this task
 	MaxRetry int
 
-	// Function to acknowledge this TaskMessage when recived as a subscription
+	// Function to acknowledge this TaskMessage when received as a subscription
 	ackFN func(opts ...nats.AckOpt) error
 }
 
 func (msg *TaskMessage) GetStatus() string {
 	switch msg.Status {
 	case Pending:
-		return "Pending"
+		return "pending"
 	case Processing:
-		return "Processing"
+		return "processing"
 	case Failed:
-		return "Failed"
+		return "failed"
 	case Completed:
-		return "Completed"
+		return "completed"
 	case Cancelled:
-		return "Cancelled"
+		return "cancelled"
 	case Deleted:
-		return "Deleted"
+		return "deleted"
 	default:
 		return "invalid state"
 	}

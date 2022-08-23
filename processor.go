@@ -40,10 +40,10 @@ type manager struct {
 	logger      *ilog.Logger
 	concurrency int
 
-	// Stores context-cancel fucntions for active tasks
+	// Stores context-cancel functions for active tasks
 	cancellations CancellationStore
 
-	// Stores registered nats.Subscripton used for pulling new messages
+	// Stores registered nats.Subscription used for pulling new messages
 	pullStore PullStore
 
 	//
@@ -93,7 +93,7 @@ func newManager(
 	}
 
 	if params.dbName == "" {
-		params.dbName = KVName
+		params.dbName = defaultKVName
 	}
 
 	p := &manager{
@@ -117,15 +117,6 @@ func newManager(
 	return p
 }
 
-func (p *manager) isAlreadyRegister(streamName, durableName string) bool {
-	for info := range p.broker.js.ConsumersInfo(streamName) {
-		if info.Name == durableName {
-			return true
-		}
-	}
-	return false
-}
-
 // Listen for reconnection to nats-server
 //
 // Self-heal by connection to nats-server to same endpoints by registering subscriptions again
@@ -137,27 +128,13 @@ func (p *manager) listenForReRegister(prefix string) {
 			p.logger.Info("Re-registering subscriptions to nats-server")
 			// TODO: validate re-registration flow
 			for _, subj := range p.pullStore.pullSubscriptions {
-				p.broker.ConnectoQueue(subj.Q)
-				p.register(subj.Q, subj.Fn)
+				if !p.broker.isStreamExists(subj.Q.stream) {
+					p.logger.Warnf("stream=%s re-registering", subj.Q.stream)
+					p.broker.ConnectoQueue(subj.Q)
+					p.register(subj.Q, subj.Fn)
+				}
 			}
-
-			// for _, subj := range p.pullStore.pullSubscriptions {
-			// 	p.broker.ConnectoQueue(subj.Q)
-			// 	p.register(subj.Q, subj.Fn)
-			// // If subscripton to consumer does not exist, recreate it
-			// // happens if revived nats-server has fresh / different state
-			// 	registerd := p.isAlreadyRegister(subj.StreamName, StreamNameToDurableStreamName(prefix, subj.Subject))
-			// 	// for info := range p.broker.js.ConsumersInfo(subj.StreamName) {
-			// 	if registerd {
-			// 		p.logger.Debugf("server remembers us. No need to register for %s", subj.Subject)
-			// 	} else {
-			// 		p.logger.Debugf("server doesn't remembers us. Need to register for %s", subj.Subject)
-			// 		// try to register, again
-			// 		// TODO
-			// 		// p.register(prefix, subj.StreamName, subj.Subject, subj.Fn)
-			// 	}
-			// }
-			p.logger.Info("Registration succesful", p.broker.ns.Servers())
+			p.logger.Info("Registration successful", p.broker.ns.Servers())
 		}
 	}()
 }
@@ -191,17 +168,6 @@ func (c *CancellationStore) Get(id string) (fn context.CancelFunc, ok bool) {
 	return fn, ok
 }
 
-// The HandlerFunc type is an adapter to allow the use of
-// ordinary functions as a Handler. If f is a function
-// with the appropriate signature, HandlerFunc(f) is a
-// Handler that calls f.
-type HandlerFunc func(context.Context, *TaskPayload) error
-
-// ProcessTask calls fn(ctx, task)
-func (fn HandlerFunc) ProcessTask(ctx context.Context, task *TaskPayload) error {
-	return fn(ctx, task)
-}
-
 // func getCancelStreamName(subject string) string {
 // 	return fmt.Sprintf("cancel-%s", subject)
 // }
@@ -229,44 +195,45 @@ func (p *manager) register_cancel_for(q *Queue) {
 
 		if cancelFN, ok := p.cancellations.cancelFuncs[cancelData.ID]; ok {
 			cancelFN()
-			p.logger.Infof("Successfuly cancelled: %s/%s", q.stream, cancelData.ID)
+			p.logger.Infof("Successfully cancelled: %s/%s", q.stream, cancelData.ID)
 		} else {
-			// Cancel fn not found for this task
-			// Check task status
-			// if task stil pending, delete message
-			// if status, ok := p.rw.GetStatus(cancelData.ID); !ok {
-			if obj, err := p.rw.Get(cancelData.ID); err != nil {
-				p.logger.Infof("taskID (%s) not found", cancelData.ID)
-			} else {
-				status := obj.Status
-				switch status {
-				case Pending:
-					{
-						if err := p.broker.js.DeleteMsg(cancelData.StreamName, obj.Sequence); err != nil {
-							p.logger.Error("Cancellation failed for %s/%s", m.Subject, cancelData.ID)
-						} else {
-							p.logger.Infof("Successfuly cancelled: %s/%s", q.stream, cancelData.ID)
-						}
+			// // Cancel fn not found for this task
+			// // Check task status
+			// // if task stil pending, delete message
+			// // if status, ok := p.rw.GetStatus(cancelData.ID); !ok {
+			// if obj, err := p.rw.Get(cancelData.ID); err != nil {
+			// 	p.logger.Infof("taskID (%s) not found", cancelData.ID)
+			// } else {
+			// 	status := obj.Status
+			// 	switch status {
+			// 	// case Pending:
+			// 	// 	{
+			// 	// 		// fallback case
+			// 	// 		if err := p.broker.js.DeleteMsg(cancelData.StreamName, obj.Sequence); err != nil {
+			// 	// 			p.logger.Error("Cancellation failed for %s/%s", m.Subject, cancelData.ID)
+			// 	// 		} else {
+			// 	// 			p.logger.Infof("Successfully cancelled: %s/%s", q.stream, cancelData.ID)
+			// 	// 		}
 
-						return
-					}
-				case Processing:
-					{
-						// ignored
-						// this server does not have access to cancelFN, meaning some other serv does
-					}
-				case Cancelled:
-					{
-						// ignore
-					}
-				default:
-					{
-						// task is in a state that cannot be cancelled.
-						// ( eg. Cancelled, Completed, Failed )
-						p.logger.Warnf("Task is in uncancellable state. task=%s status=%s", obj.ID, obj.GetStatus())
-					}
-				}
-			}
+			// 	// 		return
+			// 	// 	}
+			// 	case Processing:
+			// 		{
+			// 			// ignored
+			// 			// this server does not have access to cancelFN, meaning some other serv does
+			// 		}
+			// 	case Cancelled:
+			// 		{
+			// 			// ignore
+			// 		}
+			// 	default:
+			// 		{
+			// 			// task is in a state that cannot be cancelled.
+			// 			// ( eg. Cancelled, Completed, Failed )
+			// 			p.logger.Warnf("Task is in uncancellable state. task=%s status=%s", obj.ID, obj.GetStatus())
+			// 		}
+			// 	}
+			// }
 		}
 	}, nats.ManualAck()); err != nil {
 		p.logger.Fatalf("error connecting cancel-subscriber for %s (%s)", q.stream, err)
@@ -357,10 +324,6 @@ func (p *manager) exec(queueName string) {
 
 				for _, msg := range taskMsgs {
 					deadline := p.computeDeadline(msg)
-					// // TODO: Test this logic works well with retries as well
-					// if _rtCount, ok := iContext.GetRetryCount(); !ok {
-					// 	rtCount = _rtCount
-					// }
 					fCtx, fCancel := iContext.New(msg.ID, msg.Queue, msg.MaxRetry, msg.CurrentRetry, deadline)
 					p.cancellations.Add(msg.ID, fCancel)
 					defer func() {
@@ -380,7 +343,7 @@ func (p *manager) exec(queueName string) {
 
 					resCh := make(chan error, 1)
 					go func() {
-						p.logger.Infof("Recieved subject=%s task=%s", queueName, msg.ID)
+						p.logger.Infof("Received subject=%s task=%s", queueName, msg.ID)
 						msg.Status = Processing
 						x, _ := EncodeTMToJSON(msg)
 						p.rw.Set(msg.ID, x)
@@ -483,16 +446,16 @@ func (p *manager) stop() {
 }
 
 func (p *manager) handleCancelledMessage(ctx context.Context, msg *TaskMessage, err error) {
-	p.logger.Infof("Cancelled task %s with %s", msg.ID, ctx.Err())
+	p.logger.Debugf("handling cancel task=%s err=%s", msg.ID, ctx.Err())
 	msg.CompletedAt = time.Now().Unix()
 	msg.Status = Cancelled
 	x, _ := EncodeTMToJSON(msg)
 	p.rw.Set(msg.ID, x)
 	msg.ackFN()
-	return
 }
 
 func (p *manager) handleSucceededMessage(ctx context.Context, msg *TaskMessage) {
+	p.logger.Debugf("handling success task=%s", msg.ID)
 	msg.CompletedAt = time.Now().Unix()
 	msg.Status = Completed
 	msg.ackFN()
@@ -502,11 +465,11 @@ func (p *manager) handleSucceededMessage(ctx context.Context, msg *TaskMessage) 
 	} else {
 		p.rw.Set(msg.ID, d)
 	}
-	p.logger.Infof("Processed subject=%s task=%s", msg.Queue, msg.ID)
+	p.logger.Infof("processed subject=%s task=%s", msg.Queue, msg.ID)
 }
 
-// TOOD: Implement retry
 func (p *manager) handleFailedMessage(ctx context.Context, msg *TaskMessage, err error) {
+	p.logger.Debugf("handling failure task=%s err=%s", msg.ID, ctx.Err())
 
 	if errors.Is(err, context.Canceled) {
 		p.handleCancelledMessage(ctx, msg, err)
@@ -515,33 +478,31 @@ func (p *manager) handleFailedMessage(ctx context.Context, msg *TaskMessage, err
 
 	if p.isFailureFn(err) || msg.MaxRetry == 0 {
 		// mark task a failure
-		p.logger.Infof("Failed task=%s", msg.ID)
+		p.logger.Infof("failed task=%s", msg.ID)
 		msg.CompletedAt = time.Now().Unix()
 		msg.Status = Failed
 		x, _ := EncodeTMToJSON(msg)
 		p.rw.Set(msg.ID, x)
 		msg.ackFN()
-		return
 	} else {
 		// re-submit task for a ret
-		// TODO: retry task
 		if msg.CurrentRetry == msg.MaxRetry {
 			p.logger.Infof("Retry limit reached task=%s. Marked as status=%s", msg.ID, "failed")
 			msg.Status = Failed
 			x, _ := EncodeTMToJSON(msg)
 			p.rw.Set(msg.ID, x)
 			msg.ackFN()
-			return
 		} else {
 			msg.CurrentRetry += 1
 			p.logger.Infof("Retrying task=%s", msg.ID)
 			p.requeue(msg)
-			return
 		}
 	}
 }
 
-// Requeue the message back into stream, if task was not completed succesfully
+// Requeue the message back into stream, if task was not completed successfully
+//
+// TODO: Consider retrying in the same worker instead of pushing message back into the stream
 func (p *manager) requeue(t *TaskMessage) {
 	p.broker.PublishWithMeta(t)
 	msgBytes, _ := EncodeTMToJSON(t)

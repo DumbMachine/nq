@@ -6,10 +6,6 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-const (
-	KVName = "package"
-)
-
 type ResultHandlerIFACE interface {
 	// Get the result of a task in nats kv store
 	Get(id string) (*TaskMessage, error)
@@ -29,7 +25,7 @@ func NewResultHandlerNats(name string, js nats.JetStreamContext) *ResultHandlerN
 	if errors.Is(err, nats.ErrBucketNotFound) {
 		// create the bucket
 		kv, err := js.CreateKeyValue(&nats.KeyValueConfig{
-			Bucket:      KVName,
+			Bucket:      defaultKVName,
 			Description: "used by package for status retention and fetching",
 			Storage:     nats.FileStorage,
 		})

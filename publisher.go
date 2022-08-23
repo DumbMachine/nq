@@ -3,7 +3,6 @@ package nq
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 
 	"github.com/nats-io/nats.go"
@@ -30,7 +29,7 @@ func NewPublishClient(config NatsClientOpt, opts ...ClientConnectionOption) *Pub
 	}
 
 	if config.DBName == "" {
-		config.DBName = KVName
+		config.DBName = defaultKVName
 	}
 
 	kv := NewResultHandlerNats(config.DBName, broker.js)
@@ -101,7 +100,7 @@ func (p *PublishClient) PublishToSubject(task *Task, opts ...TaskOption) (*TaskM
 
 func (p *PublishClient) Enqueue(task *Task, opts ...TaskOption) (*TaskMessage, error) {
 	q := NewQueue(task.queue)
-	p.connectOrCreateQueue(q)
+	p.broker.ConnectoQueue(q)
 
 	return p.PublishToSubject(task, opts...)
 }
@@ -111,8 +110,8 @@ func (p *PublishClient) Cancel(id string) error {
 	if taskInfo, err := p.kv.Get(id); err != nil {
 		return ErrTaskNotFound
 	} else {
-		if taskInfo.Status == Deleted {
-			return ErrCannotCancelDeletedTask
+		if taskInfo.Status == Deleted || taskInfo.Status == Cancelled || taskInfo.Status == Completed || taskInfo.Status == Failed {
+			return ErrNonCancellableState
 		}
 		if taskInfo.Status == Pending {
 			// task is still pending, safe to remove from list
@@ -121,7 +120,7 @@ func (p *PublishClient) Cancel(id string) error {
 				// fmt.Printf("Cancellation failed for %s/%s", taskInfo.StreamName, taskInfo.ID)
 				return err
 			} else {
-				// fmt.Printf("Successfuly cancelled: %s/%s", taskInfo.Queue, taskInfo.ID)
+				// fmt.Printf("Successfully cancelled: %s/%s", taskInfo.Queue, taskInfo.ID)
 				taskInfo.Status = Deleted
 				x, _ := EncodeTMToJSON(taskInfo)
 				p.kv.Set(taskInfo.ID, x)
@@ -141,38 +140,6 @@ func (p *PublishClient) CancelInQueue(id string, qname string) error {
 	return p.cancelInStream(id, q)
 }
 
-// Connect to a queue
-//
-//
-// func (p *PublishClient) Queue(name string) error {
-// 	q := Queue{name: name}
-// 	return p.connectOrCreateQueue(q)
-// }
-
-// TODO: Check first before creating
-// TODO: Change naming schema to
-// queue.task for task message
-// queue.cancel for cancel message
-
-func (p *PublishClient) connectOrCreateQueue(q *Queue) error {
-
-	// create task-stream
-	if err := p.createStream(q.stream, q.subject, nats.WorkQueuePolicy); err != nil {
-		// failed to create task-stream
-		// todo
-		panic(err)
-	} else {
-		log.Printf("Created queue=%s", q.stream)
-		// create cancel stream for task-stream
-		if err := p.createStream(q.cancelStream, q.cancelSubject, nats.InterestPolicy); err != nil {
-			panic(err)
-		}
-		log.Printf("Created cancel queue=%s", q.stream)
-
-	}
-	return nil
-}
-
 func (p *PublishClient) createStream(streamName, subject string, policy nats.RetentionPolicy) error {
 	if err := p.broker.AddStream(nats.StreamConfig{
 		Name:      streamName,
@@ -184,11 +151,10 @@ func (p *PublishClient) createStream(streamName, subject string, policy nats.Ret
 	return nil
 }
 
-// Cleanup method
 func (p *PublishClient) DeleteQueue(qname string) {
 	q := NewQueue(qname)
 	if err := p.broker.DeleteStream(q.stream); err != nil {
-		log.Println(fmt.Sprintf("error deleting stream: %s"))
+		log.Printf("error deleting stream=%s", q.stream)
 	}
 }
 
@@ -215,7 +181,6 @@ func (p *PublishClient) Fetch(id string) (*TaskMessage, error) {
 
 // Also delete stream for cleanup
 func (p *PublishClient) Close() error {
-	// cleanup: close stream and delete-stream
 	defer p.broker.Close()
 	return nil
 }

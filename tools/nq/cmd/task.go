@@ -81,13 +81,15 @@ var taskCancelCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		client := nq.NewPublishClient(nq.NatsClientOpt{Addr: uri}, nq.NoAuthentcation())
-		if err := client.Cancel(id); err != nil {
-			fmt.Printf("%s\n", err)
-			os.Exit(1)
-		} else {
-			fmt.Printf("Cancel message sent task=%s", id)
-			os.Exit(0)
-		}
+		client.isStreamExists("scrap-url-dev")
+		client.isStreamExists("scrap-url-nono")
+		// if err := client.Cancel(id); err != nil {
+		// 	fmt.Printf("%s\n", err)
+		// 	os.Exit(1)
+		// } else {
+		// 	fmt.Printf("Cancel message sent task=%s", id)
+		// 	os.Exit(0)
+		// }
 	},
 }
 

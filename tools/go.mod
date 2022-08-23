@@ -2,6 +2,11 @@ module github.com/dumbmachine/nq/tools
 
 go 1.18
 
+// dev
+replace (
+	github.com/dumbmachine/nq => ../
+)
+
 require (
 	github.com/dumbmachine/nq v0.1.0-beta.4
 	github.com/spf13/cobra v1.5.0

@@ -9,9 +9,10 @@ import (
 
 const (
 	defaultMaxReconnects            = 100
+	defaultShutdownOnNatsDisconnect = false
+	defaultKVName                   = "nq-store"
 	defaultReconnectWait            = time.Second * 10
 	defaultAuthenticationType       = NoAuthenticationOpt
-	defaultShutdownOnNatsDisconnect = false
 )
 
 var defaultNatsOptions = make([]nats.Option, 0)

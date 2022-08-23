@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dumbmachine/nq"
+	"github.com/nats-io/nats.go"
 )
 
 type UrlPayload struct {
@@ -67,7 +68,7 @@ func main() {
 				// QueueDev, bytesPayload1, nq.TaskID("customID"), nq.Retry(2))
 				// QueueDev, bytesPayload1)
 				// QueueDev, bytesPayload1, nq.Deadline(time.Now().Add(time.Second)), nq.TaskID("customID"))
-				QueueDev, bytesPayload1, nq.Timeout(time.Minute*10), nq.TaskID("customID"))
+				QueueDev, bytesPayload1, nq.Timeout(time.Minute*10))
 			if ack, err := client.Enqueue(task1); err == nil {
 				log.Printf("Submitted queue=%s taskID=%s payload=%s", ack.Queue, ack.ID, ack.Payload)
 			} else {
@@ -84,12 +85,18 @@ func main() {
 	case "sub":
 		{
 			log.Println("Startup subscriber ...")
+
+			var ErrSkipMe = errors.New("an error that does not require retrial")
+
 			srv := nq.NewServer(nq.NatsClientOpt{
-				Addr:          "nats://127.0.0.1:4222",
+				Addr: nats.DefaultURL,
+				// Addr:          "nats://127.0.0.1:4222",
 				ReconnectWait: time.Second * 2,
 				MaxReconnects: 100,
 			}, nq.Config{
-				// ServerName: "local",
+				IsFailureFn: func(err error) bool {
+					return errors.Is(err, ErrSkipMe)
+				},
 				ServerName:  nq.GenerateServerName(),
 				Concurrency: 1,
 				LogLevel:    nq.InfoLevel,
@@ -98,6 +105,7 @@ func main() {
 			)
 
 			srv.Register(QueueDev, fetchHTML)
+			srv.Register("another-one", fetchHTML)
 
 			if err := srv.Run(); err != nil {
 				panic(err)

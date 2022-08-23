@@ -22,7 +22,7 @@ NQ requires nats-server with jetstream support. Feedback is appreciated.
 ![Task Queue Figure](/docs//assets/2.svg)
 This package was designed such that a task should always be cancellable by client. Upon network partision ( eg. disconnect from nats-server ), workers can be configured to cancel and quit instantly.
 
-For scalable task execution, client can submit `task` to queues which are _load-balanced_ across servers ( subscribed to said queues ). When a task is to be `cancelled`, client issues `cancel` request to all servers subsribed to the `queue`, think multicast, and responsible server `cancels` executing task via go-context. A `task` in `state ∈ {Completed, Failed, Cancelled, Deleted}` cannot be cancelled. While a `task` still in queue, pending for it's execution, will be removed from the queue ( marked as `deleted` ) and a `task` in execution will marked be `cancelled` by calling `cancel` method on it's context.
+Client submit `task` to queues which are _load-balanced_ across servers ( subscribed to said queues ). When a task is to be `cancelled`, client issues `cancel` request to all servers subsribed to the `queue`, think multicast, and responsible server `cancels` executing task via go-context. A `task` in `state ∈ {Completed, Failed, Cancelled, Deleted}` cannot be cancelled. While a `task` still in queue, pending for it's execution, will be removed from the queue ( marked as `deleted` ) and a `task` in execution will marked be `cancelled` by calling `cancel` method on it's context.
 For successful cancellations it is important that `ProcessingFunc`, the function executing said task, should respect `context` provided to it.
 
 ## Features
@@ -33,13 +33,45 @@ For successful cancellations it is important that `ProcessingFunc`, the function
 - [Deadline and Timeout for tasks](#deadline--timeout-for-tasks)
 - [Tasks can be cancelled via context](#task-cancellations)
 - Horizontally scalable workers
-- Reconnection to nats-server for automatic failover
 - [Automatic failover](#automatic-failover)
+- [Reconnection to nats-server for automatic failover](#reconnection)
 - [Monitoring and Alerting](#monitoring-and-alerting)
 - [CLI](#cli-usage)
 <!-- - TODO: Nats cluster -->
 
-# Deadline / Timeout for tasks
+# Task Options Walkthrough
+
+## Retrying
+
+By default `task` is submitted for retry, if it returns non-nil error.
+
+```go
+// a task that will be retried 2 before being marked as `failed`
+taskWithRetry := nq.NewTask("my-queue", bytesPayload, nq.Retry(2))
+```
+
+Custom filtering function for error, to mark task as failed only on specific error.
+Here if a task fails due to `ErrFailedDueToInvalidApiKeys`, it will be consider as `failure` and will be retried
+
+```go
+var ErrFailedDueToInvalidApiKeys = errors.New("failed to perform task, invalid api keys")
+
+srv := nq.NewServer(nq.NatsClientOpt{
+	Addr: nats.DefaultURL,
+	ReconnectWait: time.Second * 2,
+	MaxReconnects: 100,
+}, nq.Config{
+	IsFailureFn: func(err error) bool {
+		return errors.Is(err, ErrFailedDueToInvalidApiKeys)
+	},
+	ServerName:  nq.GenerateServerName(),
+	Concurrency: 1,
+	LogLevel:    nq.InfoLevel,
+})
+
+```
+
+## Deadline / Timeout for tasks
 
 ```go
 // a task that executes till time.Now() + 1 hour
@@ -49,7 +81,7 @@ taskWithDeadline := nq.NewTask("my-queue", bytesPayload, nq.Deadline(time.Now().
 taskWithTimeout := nq.NewTask("my-queue", bytesPayload, nq.Timeout(time.Minute * 10), nq.TaskID("timeoutTaskID"))
 ```
 
-# Task cancellations
+## Task cancellations
 
 Tasks that are either waiting for execution or being executed on any worker, can be `cancelled`. Cancellation of a task requires it's `taskID`.
 
@@ -86,36 +118,7 @@ func longRunningOperation(ctx context.Context, task *nq.TaskPayload) error {
 
 NOTE: Successful cancellation depends on task function respecting `context.Done()`.
 
-# CLI Usage
-
-Install CLI
-
-```go
-go install github.com/dumbmachine/nq/tools/nq@latest
-```
-
-- Cancel task
-
-```bash
-$ nq -u nats://127.0.0.1:4222 task cancel --id customID
-taskID=customID status=Cancelled
-```
-
-- Status of task
-
-```bash
-$ nq -u nats://127.0.0.1:4222 task cancel --id customID
-Cancel message sent task=customID
-```
-
-- Queue stats
-
-```go
-$ nq -u nats://127.0.0.1:4222 queue stats --name scrap-url-dev
-queue: scrap-url-dev | MessagesPending: 11 | Size: 3025 Bytes
-```
-
-## Automatic Failover
+# Automatic Failover
 
 `ShutdownOnNatsDisconnect` option will shutdown workers and server is connection to nats-server is broken. Useful when tasks being `cancellable` at all times is required.
 Note: When disconnect is observed, workers would stop processing new messages. The workers would be cancelled in `shutdownTimeout` duration. If any tasks is/are not completed after this, they will be cancelled and still be available in task queue for future / other workers to process.
@@ -147,7 +150,9 @@ nq: pid=24914 2022/08/21 15:43:53.363550 INFO: All workers have finished
 nq: pid=24914 2022/08/21 15:43:53.363570 INFO: Exiting
 ```
 
-Server can configured to not shutdown and instead try to reconnect to nats.
+## Reconnection
+
+Server can configured to not shutdown and instead try to reconnect to nats, when disconnected.
 
 ```go
 srv := nq.NewServer(nq.NatsClientOpt{
@@ -157,35 +162,75 @@ srv := nq.NewServer(nq.NatsClientOpt{
 	}, nq.Config{ServerName:  "local-serv-1"})
 ```
 
-```go
-$ go run examples/simple.go sub
-2022/08/21 21:45:31 Startup subscriber ...
-response: true2022/08/21 21:45:31 Created stream=scrap-url-dev/cancel subject=scrap-url-dev.cancel
-nq: pid=26209 2022/08/21 16:15:31.507059 INFO: Registered queue=scrap-url-dev
-nq: pid=26209 2022/08/21 16:15:31.507070 INFO: Started Server@DumbmachinePro-local/26209
-nq: pid=26209 2022/08/21 16:15:31.507080 INFO: [*] Listening for messages
-nq: pid=26209 2022/08/21 16:15:31.507083 INFO: cmd/ctrl + c to terminate the process
-nq: pid=26209 2022/08/21 16:15:31.507086 INFO: cmd/ctrl + z to stop processing new tasks
-nq: pid=26209 2022/08/21 16:15:37.011436 INFO: Recieved subject=scrap-url-dev task=customID
-nq: pid=26209 2022/08/21 16:15:38.487646 INFO: Processed subject=scrap-url-dev task=customID
-disconnected from nats
-2022/08/21 21:45:48 reconnection found nats://127.0.0.1:4222
-nq: pid=26209 2022/08/21 16:15:48.591125 INFO: Re-registering subscriptions to nats-server
-response: true2022/08/21 21:45:48 Created stream=scrap-url-dev/cancel subject=scrap-url-dev.cancel
-nq: pid=26209 2022/08/21 16:15:48.609046 INFO: Registered queue=scrap-url-dev
-nq: pid=26209 2022/08/21 16:15:48.609145 INFO: Registration succesful[nats://127.0.0.1:4222]
-nq: pid=26209 2022/08/21 16:15:52.883764 INFO: Recieved subject=scrap-url-dev task=customID
-nq: pid=26209 2022/08/21 16:15:54.252731 INFO: Processed subject=scrap-url-dev task=customID
-^C
-nq: pid=26209 2022/08/21 16:15:58.979857 INFO: Starting graceful shutdown
-nq: pid=26209 2022/08/21 16:15:58.980598 INFO: Waiting for all workers to finish...
-nq: pid=26209 2022/08/21 16:15:58.980655 INFO: All workers have finished
-nq: pid=26209 2022/08/21 16:15:58.981880 INFO: Exiting
-```
+If nats-server is backup:
+
+1. With previous state
+
+   ```bash
+   nq: pid=7988 2022/08/22 17:24:44.349815 INFO: Registered queue=scrap-url-dev
+   nq: pid=7988 2022/08/22 17:24:44.356378 INFO: Registered queue=another-one
+   nq: pid=7988 2022/08/22 17:24:44.356393 INFO: Started Server@DumbmachinePro-local/7988
+   nq: pid=7988 2022/08/22 17:24:44.356444 INFO: [*] Listening for messages
+   nq: pid=7988 2022/08/22 17:24:44.356455 INFO: cmd/ctrl + c to terminate the process
+   nq: pid=7988 2022/08/22 17:24:44.356459 INFO: cmd/ctrl + z to stop processing new tasks
+   disconnected from nats
+   2022/08/22 22:55:02 reconnection found nats://127.0.0.1:4222
+   nq: pid=7988 2022/08/22 17:25:02.860051 INFO: Re-registering subscriptions to nats-server
+   nq: pid=7988 2022/08/22 17:25:02.864988 INFO: Registration successful[nats://127.0.0.1:4222]
+   disconnected from nats
+   ```
+
+2. Without previous state
+   If registered streams are not found in nats-server, they will be created
+   ```bash
+   nq: pid=7998 2022/08/22 17:26:44.349815 INFO: Registered queue=scrap-url-dev
+   nq: pid=7998 2022/08/22 17:26:44.356378 INFO: Registered queue=another-one
+   nq: pid=7998 2022/08/22 17:26:44.356393 INFO: Started Server@DumbmachinePro-local/7998
+   nq: pid=7998 2022/08/22 17:26:44.356444 INFO: [*] Listening for messages
+   nq: pid=7998 2022/08/22 17:26:44.356455 INFO: cmd/ctrl + c to terminate the process
+   nq: pid=7998 2022/08/22 17:26:44.356459 INFO: cmd/ctrl + z to stop processing new tasks
+   disconnected from nats
+   2022/08/22 22:57:25 reconnection found nats://127.0.0.1:4222
+   nq: pid=7998 2022/08/22 17:27:25.518079 INFO: Re-registering subscriptions to nats-server
+   nq: pid=7998 2022/08/22 17:27:25.524895 WARN: stream=scrap-url-dev re-registering
+   nq: pid=7998 2022/08/22 17:27:25.542725 INFO: Registered queue=scrap-url-dev
+   nq: pid=7998 2022/08/22 17:27:25.543668 WARN: stream=another-one re-registering
+   nq: pid=7998 2022/08/22 17:27:25.554961 INFO: Registered queue=another-one
+   nq: pid=7998 2022/08/22 17:27:25.555002 INFO: Registration successful[nats://127.0.0.1:4222]
+   ```
 
 ## Monitoring and Alerting
 
 Refer [nats monitoring section](https://docs.nats.io/running-a-nats-service/configuration/monitoring) and [monitoring tool by nats-io](https://github.com/nats-io/nats-surveyor)
+
+# CLI Usage
+
+Install CLI
+
+```go
+go install github.com/dumbmachine/nq/tools/nq@latest
+```
+
+- Cancel task
+
+```bash
+$ nq -u nats://127.0.0.1:4222 task cancel --id customID
+taskID=customID status=Cancelled
+```
+
+- Status of task
+
+```bash
+$ nq -u nats://127.0.0.1:4222 task cancel --id customID
+Cancel message sent task=customID
+```
+
+- Queue stats
+
+```go
+$ nq -u nats://127.0.0.1:4222 queue stats --name scrap-url-dev
+queue: scrap-url-dev | MessagesPending: 11 | Size: 3025 Bytes
+```
 
 ## Quickstart
 

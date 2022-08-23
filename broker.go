@@ -30,7 +30,12 @@ func (n *NatsBroker) Publish(subject string, payload []byte) (*nats.PubAck, erro
 	return n.js.Publish(subject, payload)
 }
 
-// TODO: This is toxix
+// Checks is a stream exists
+func (n *NatsBroker) isStreamExists(stream string) bool {
+	_, err := n.js.StreamInfo(stream)
+	return err == nil
+}
+
 func (n *NatsBroker) PublishWithMeta(msg *TaskMessage) (*TaskMessage, error) {
 	bytesMsg, err := EncodeTMToJSON(msg)
 	if err != nil {
@@ -62,6 +67,8 @@ func natsDisconnectHandler(disconnect bool, natsConnectionClosed chan struct{}) 
 	if disconnect {
 		return nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
 			// Send closing signal
+			// debug
+			// fmt.Println("activating closed connection")
 			natsConnectionClosed <- struct{}{}
 		})
 	} else {
@@ -83,12 +90,6 @@ func natsClosedHandler(disconnect bool, natsConnectionClosed chan struct{}) nats
 		})
 	}
 	return nil
-}
-
-// Check if queue already exists in nats-server
-func (n *NatsBroker) isQueueExist(streamName string) bool {
-	streamExistsInformation, err := n.js.StreamInfo(streamName)
-	return !(err != nil || streamExistsInformation == nil)
 }
 
 // Utility that creates a nats jetstream
@@ -113,28 +114,26 @@ func (n *NatsBroker) Stats(q *Queue) error {
 	return nil
 }
 
-// Creates queue  if not exists
+// Creates queue stream if not exists
 //
 // Also create underlying nets-stream for queue and cancel-queue
 func (n *NatsBroker) ConnectoQueue(q *Queue) error {
-	fmt.Printf("response: %v", n.isQueueExist(q.stream))
-	if ok := n.isQueueExist(q.stream); !ok {
-		// create task stream
+	// create task-stream
+	if ok := n.isStreamExists(q.stream); !ok {
+		// if stream does not exist, create
 		if err := n.createStream(q.stream, q.subject, nats.WorkQueuePolicy); err != nil {
 			// failed to create task-stream
+			// todo
 			panic(err)
 		}
-		// todo: user logger
-		// successfuly created task-stream
-		// log.Printf("Created stream=%s subject=%s", q.stream, q.subject)
+		log.Printf("Created queue=%s", q.stream)
 	}
-	if canceOk := n.isQueueExist(q.cancelStream); !canceOk {
+	if ok := n.isStreamExists(q.cancelStream); !ok {
+		// create cancel stream for task-stream
 		if err := n.createStream(q.cancelStream, q.cancelSubject, nats.InterestPolicy); err != nil {
 			panic(err)
 		}
-		// successfuly created cancel-stream
-		// todo: user logger
-		// log.Printf("Created stream=%s subject=%s", q.cancelStream, q.cancelSubject)
+		log.Printf("Created cancel queue=%s", q.stream)
 	}
 	return nil
 }
