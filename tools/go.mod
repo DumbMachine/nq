@@ -8,7 +8,7 @@ go 1.17
 // )
 
 require (
-	github.com/dumbmachine/nq v0.1.0-beta.4
+	github.com/dumbmachine/nq v0.2.0
 	github.com/spf13/cobra v1.5.0
 )
 
