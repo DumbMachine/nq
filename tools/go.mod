@@ -1,11 +1,11 @@
 module github.com/dumbmachine/nq/tools
 
-go 1.18
+go 1.17
 
 // dev
-replace (
-	github.com/dumbmachine/nq => ../
-)
+// replace (
+// 	github.com/dumbmachine/nq => ../
+// )
 
 require (
 	github.com/dumbmachine/nq v0.1.0-beta.4

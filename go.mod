@@ -4,6 +4,7 @@ go 1.17
 
 retract (
 	// unintentional uploads
+	v0.1.0-beta.4
 	v0.1.0-beta.3
 	v0.1.0-beta.2
 	v0.1.0-beta.1
