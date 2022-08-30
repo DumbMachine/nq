@@ -11,7 +11,7 @@ type ResultHandlerIFACE interface {
 	Get(id string) (*TaskMessage, error)
 	// Set the result of a task in nats kv store
 	Set(id string, data []byte) error
-
+	Watch(id string) (chan *TaskMessage, error)
 	GetAllKeys(id string, data []byte) ([]string, error)
 }
 
@@ -77,11 +77,29 @@ func (rn *ResultHandlerNats) GetAllKeys(id string, data []byte) ([]string, error
 	}
 }
 
-// func (rn *ResultHandlerNats) GetStatus(id string) (int, bool) {
-// 	if obj, err := rn.Get(id); err != nil {
-// 		return -1, false
-// 	} else {
-// 		tm, _ := DecodeTMFromJSON(obj)
-// 		return tm.Status, true
-// 	}
-// }
+func (rn *ResultHandlerNats) Watch(id string) (chan *TaskMessage, error) {
+	watcher, err := rn.kv.Watch(id)
+	status := make(chan *TaskMessage)
+	go func() {
+		for updated := range watcher.Updates() {
+			if updated != nil {
+				// TODO: handle error
+				x, err := DecodeTMFromJSON(updated.Value())
+				if err != nil {
+					close(status)
+					return
+				}
+				// log.Println("decode err", err, x)
+				status <- x
+
+				// check if status is terminal
+				if x.Status == Failed || x.Status == Completed || x.Status == Deleted || x.Status == Cancelled {
+					close(status)
+					return
+				}
+			}
+		}
+	}()
+
+	return status, err
+}

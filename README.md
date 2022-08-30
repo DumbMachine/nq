@@ -33,6 +33,63 @@ For successful cancellations it is important that `ProcessingFunc`, the function
 
 # Task Options Walkthrough
 
+## Watch for updates
+
+( Introduced in v0.3 )
+
+Listen for updates to task metadata
+
+```go
+func main() {
+	client := nq.NewPublishClient(nq.NatsClientOpt{
+		Addr: "nats://127.0.0.1:4222",
+	}, nq.NoAuthentcation(),
+	)
+
+	defer client.Close()
+
+	bytesPayload1, err := json.Marshal(UrlPayload{Url: "https://httpstat.us/200?sleep=10000"})
+	if err != nil {
+		panic(err)
+	}
+
+	var wg sync.WaitGroup
+	task1 := nq.NewTask(QueueDev, bytesPayload1)
+	if ack, err := client.Enqueue(task1); err == nil {
+		log.Printf("Watching updates queue=%s taskID=%s payload=%s", ack.Queue, ack.ID, ack.Payload)
+		wg.Add(1)
+		updates, err := client.GetUpdates(ack.ID)
+		if err != nil {
+			panic(err)
+		}
+		// listening for updates
+		go func() {
+			defer wg.Done()
+
+			for {
+				msg, ok := <-updates
+				if !ok {
+					// channel closed
+					return
+				}
+				log.Printf("Change detected, status=%s", msg.GetStatus())
+			}
+		}()
+	} else {
+		log.Printf("err=%s", err)
+	}
+	wg.Wait()
+}
+
+```
+
+```
+2022/08/29 22:17:15 Watching updates queue=scrap-url-dev taskID=yzaKwBIcbGEt8sMGgMJcZ0 payload={"url":"https://httpstat.us/200?sleep=10000"}
+2022/08/29 22:17:15 Change detected, status=pending
+2022/08/29 22:17:16 Change detected, status=processing
+2022/08/29 22:17:28 Change detected, status=completed
+```
+
 ## Retrying
 
 By default `task` is submitted for retry, if it returns non-nil error.

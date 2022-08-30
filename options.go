@@ -13,6 +13,7 @@ const (
 	defaultKVName                   = "nq-store"
 	defaultReconnectWait            = time.Second * 10
 	defaultAuthenticationType       = NoAuthenticationOpt
+	defaultMaxRetry                 = 0
 )
 
 var defaultNatsOptions = make([]nats.Option, 0)
