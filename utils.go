@@ -49,24 +49,8 @@ func CancelStreamNameToStreamName(stream, subject string) string {
 
 //
 //
-// Internally `Queue`s represent an abstraction over a nats stream -> subject
+// Internal `Queue`s represent an abstraction over a nats stream -> subject
 type Queue struct {
-	// // Name of this queue. User facing
-	// //
-	// // In nats terminalogy this corresponds to stream/subject
-	// name string
-
-	// streamName string
-
-	// // // Durable name for a stream subscription
-	// // // Used to maintain sequence number after reconnection to nats-server
-	// // durableName string
-
-	// cancelStreamName string
-
-	// // Name of cancel subject
-	// cancelName string
-
 	stream        string
 	subject       string
 	cancelStream  string
@@ -79,13 +63,6 @@ func NewQueue(name string) *Queue {
 		subject:       fmt.Sprintf("%s.task", name),
 		cancelStream:  fmt.Sprintf("%s/cancel", name),
 		cancelSubject: fmt.Sprintf("%s.cancel", name),
-		// // Stream and subject for recieving tasks
-		// streamName: fmt.Sprintf("stream/%s", name),
-		// name:       name,
-
-		// // Stream and subject for recieving cancellations
-		// cancelName:       fmt.Sprintf("cancel/%s", name),
-		// cancelStreamName: fmt.Sprintf("stream/cancel/%s", name),
 	}
 }
 

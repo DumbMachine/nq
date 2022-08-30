@@ -4,19 +4,44 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-
-	"github.com/nats-io/nats.go"
 )
 
 // Signature for function executed by a worker.
 // `ProcessingFunc` type are be registered to subjects, process messages published by client
 type ProcessingFunc func(context.Context, *TaskPayload) error
 
+type ListenUpdates struct {
+	m map[string]chan string
+}
+
+type Inspector struct {
+	broker    *NatsBroker
+	listeners *ListenUpdates
+}
+
+func NewInspector(broker *NatsBroker) *Inspector {
+	return &Inspector{
+		broker:    broker,
+		listeners: &ListenUpdates{make(map[string]chan string)},
+	}
+}
+
+func (i *Inspector) AddAnother(queue string, sendUpdatesTo chan string) error {
+	return nil
+}
+func (i *Inspector) Servers() {}
+func (i *Inspector) Queues()  {}
+
+// Client responsible for interaction with nq tasks
+//
+// Client is used to enqueue / cancel tasks or fetch metadata for tasks
 type PublishClient struct {
 	broker *NatsBroker
 	kv     ResultHandlerIFACE
 }
 
+// NewPublishClient returns a new Client instance, given nats connection options, to interact with nq tasks
+//
 func NewPublishClient(config NatsClientOpt, opts ...ClientConnectionOption) *PublishClient {
 	opt, err := withDefaultClientOptions(opts...)
 	if err != nil {
@@ -38,12 +63,6 @@ func NewPublishClient(config NatsClientOpt, opts ...ClientConnectionOption) *Pub
 	}
 
 	return &PublishClient{broker: broker, kv: kv}
-}
-
-type PackagePubAck struct {
-	// ID assigned to published message
-	ID string
-	*nats.PubAck
 }
 
 func (p *PublishClient) Stats(queue string) error {
@@ -68,8 +87,7 @@ func (p *PublishClient) publishMessage(msg *TaskMessage) (*TaskMessage, error) {
 	}
 }
 
-// Publish a TaskMessage into a stream
-func (p *PublishClient) PublishToSubject(task *Task, opts ...TaskOption) (*TaskMessage, error) {
+func (p *PublishClient) publishToSubject(task *Task, opts ...TaskOption) (*TaskMessage, error) {
 	opts = append(task.opts, opts...)
 	opt, err := withDefaultOptions(opts...)
 	if err != nil {
@@ -98,14 +116,29 @@ func (p *PublishClient) PublishToSubject(task *Task, opts ...TaskOption) (*TaskM
 	return p.publishMessage(taskMessage)
 }
 
+// GetUpdates can be used get changes to a task's metadata
+//
+// Returns error if failed to start watching for changes
+// Channel is closed, once task reaches terminal state
+func (p *PublishClient) GetUpdates(taskID string) (chan *TaskMessage, error) {
+	if status, err := p.kv.Watch(taskID); err != nil {
+		return nil, err
+	} else {
+		return status, err
+	}
+}
+
+// Enqueue can be used to enqueu given task to a queue
+//
+// Returns TaskMessage and nil error is enqueued successfully, else non-nill error
 func (p *PublishClient) Enqueue(task *Task, opts ...TaskOption) (*TaskMessage, error) {
 	q := NewQueue(task.queue)
 	p.broker.ConnectoQueue(q)
 
-	return p.PublishToSubject(task, opts...)
+	return p.publishToSubject(task, opts...)
 }
 
-// Fetch qname from kv store instead
+// Cancel sends `cancel` request for given task to workers
 func (p *PublishClient) Cancel(id string) error {
 	if taskInfo, err := p.kv.Get(id); err != nil {
 		return ErrTaskNotFound
@@ -140,22 +173,31 @@ func (p *PublishClient) CancelInQueue(id string, qname string) error {
 	return p.cancelInStream(id, q)
 }
 
-func (p *PublishClient) createStream(streamName, subject string, policy nats.RetentionPolicy) error {
-	if err := p.broker.AddStream(nats.StreamConfig{
-		Name:      streamName,
-		Subjects:  []string{subject},
-		Retention: policy,
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
+// Delete a queue
+//
+// Deletes underlying nats stream assosociated with a queue
 func (p *PublishClient) DeleteQueue(qname string) {
 	q := NewQueue(qname)
+	// delete task stream
 	if err := p.broker.DeleteStream(q.stream); err != nil {
 		log.Printf("error deleting stream=%s", q.stream)
 	}
+	// delete cancellation stream
+	if err := p.broker.DeleteStream(q.cancelStream); err != nil {
+		log.Printf("error deleting stream=%s", q.stream)
+	}
+}
+
+// Fetch fetches TaskMessage for given task
+//
+func (p *PublishClient) Fetch(id string) (*TaskMessage, error) {
+	return p.kv.Get(id)
+}
+
+// Close closes the connection with nats
+func (p *PublishClient) Close() error {
+	defer p.broker.Close()
+	return nil
 }
 
 func (p *PublishClient) cancelInStream(id string, q *Queue) error {
@@ -173,14 +215,4 @@ func (p *PublishClient) cancelInStream(id string, q *Queue) error {
 		}
 		return nil
 	}
-}
-
-func (p *PublishClient) Fetch(id string) (*TaskMessage, error) {
-	return p.kv.Get(id)
-}
-
-// Also delete stream for cleanup
-func (p *PublishClient) Close() error {
-	defer p.broker.Close()
-	return nil
 }
