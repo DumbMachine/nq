@@ -111,7 +111,7 @@ func (p *PublishClient) publishToSubject(task *Task, opts ...TaskOption) (*TaskM
 		Queue:        task.queue,
 		Payload:      task.payload,
 		Deadline:     deadline.Unix(),
-		ProcessAt:    processAt.UTC().Unix(),
+		ProcessAt:    processAt.UTC(),
 		CurrentRetry: 0,
 		MaxRetry:     opt.retry,
 		Timeout:      int64(timeout.Seconds()),

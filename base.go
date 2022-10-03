@@ -85,7 +85,7 @@ type TaskMessage struct {
 
 	// ProcessAt the date/time the task should be processed at.
 	// Use zero to indicate task is not a future task
-	ProcessAt int64
+	ProcessAt time.Time
 
 	// CompletedAt is the time the task was processed successfully in Unix time,
 	// the number of seconds elapsed since January 1, 1970 UTC.
