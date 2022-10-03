@@ -21,8 +21,9 @@ type Task struct {
 
 // Value zero indicates no timeout and no deadline.
 var (
-	noTimeout  time.Duration = 0
-	noDeadline time.Time     = time.Unix(0, 0)
+	noTimeout   time.Duration = 0
+	noDeadline  time.Time     = time.Unix(0, 0)
+	noProcessAt time.Time     = time.Unix(0, 0)
 )
 
 type TaskOptionType int
@@ -33,7 +34,7 @@ const (
 	// QueueOpt
 	TimeoutOpt
 	DeadlineOpt
-	// ProcessAtOpt
+	ProcessAtOpt
 	// ProcessInOpt
 )
 
@@ -44,10 +45,11 @@ type TaskOption interface {
 }
 
 type (
-	retryOption    int
-	taskIDOption   string
-	timeoutOption  time.Duration
-	deadlineOption time.Time
+	retryOption     int
+	taskIDOption    string
+	timeoutOption   time.Duration
+	deadlineOption  time.Time
+	processAtOption time.Time
 )
 
 // Returns an options to specify maximum number of times a task will be retried before being marked as failed.
@@ -100,11 +102,28 @@ func (t deadlineOption) String() string {
 func (t deadlineOption) Type() TaskOptionType { return DeadlineOpt }
 func (t deadlineOption) Value() interface{}   { return time.Time(t) }
 
+// ProcessAt returns an option to specify the date/time the task should be run at
+//
+// This is done by allowing the published task to be handled by any instance
+// at which point a delay is calculated and nack the msg with delay allowing nats
+// to redeliver it again after the duration has elapsed, if ProcessAt is not set
+// the task will be handled as usual
+func ProcessAt(t time.Time) TaskOption {
+	return processAtOption(t)
+}
+
+func (t processAtOption) String() string {
+	return fmt.Sprintf("ProcessAt(%v)", time.Time(t).Format(time.UnixDate))
+}
+func (t processAtOption) Type() TaskOptionType { return ProcessAtOpt }
+func (t processAtOption) Value() interface{}   { return time.Time(t) }
+
 type option struct {
-	retry    int
-	taskID   string
-	timeout  time.Duration
-	deadline time.Time
+	retry     int
+	taskID    string
+	timeout   time.Duration
+	deadline  time.Time
+	processAt time.Time
 }
 
 // Composes options for a task, merging default and user-provided options
@@ -132,6 +151,8 @@ func withDefaultOptions(opts ...TaskOption) (option, error) {
 			res.deadline = time.Time(opt)
 		case retryOption:
 			res.retry = int(opt)
+		case processAtOption:
+			res.processAt = time.Time(opt)
 		default:
 			// unexpected option
 		}

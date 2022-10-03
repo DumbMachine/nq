@@ -41,7 +41,6 @@ type PublishClient struct {
 }
 
 // NewPublishClient returns a new Client instance, given nats connection options, to interact with nq tasks
-//
 func NewPublishClient(config NatsClientOpt, opts ...ClientConnectionOption) *PublishClient {
 	opt, err := withDefaultClientOptions(opts...)
 	if err != nil {
@@ -101,12 +100,18 @@ func (p *PublishClient) publishToSubject(task *Task, opts ...TaskOption) (*TaskM
 	if opt.timeout != 0 {
 		timeout = opt.timeout
 	}
+
+	processAt := noProcessAt
+	if !opt.processAt.IsZero() {
+		processAt = opt.processAt
+	}
 	taskMessage := &TaskMessage{
 		Sequence:     0, // default value
 		ID:           opt.taskID,
 		Queue:        task.queue,
 		Payload:      task.payload,
 		Deadline:     deadline.Unix(),
+		ProcessAt:    processAt.UTC().Unix(),
 		CurrentRetry: 0,
 		MaxRetry:     opt.retry,
 		Timeout:      int64(timeout.Seconds()),
@@ -189,7 +194,6 @@ func (p *PublishClient) DeleteQueue(qname string) {
 }
 
 // Fetch fetches TaskMessage for given task
-//
 func (p *PublishClient) Fetch(id string) (*TaskMessage, error) {
 	return p.kv.Get(id)
 }

@@ -341,6 +341,15 @@ func (p *manager) exec(queueName string) {
 					default:
 					}
 
+					// is this a future task?
+					if msg.ProcessAt != 0 {
+						pat := time.Unix(int64(msg.ProcessAt), 0)
+						// if the ProcessAt time is in the future nack with delay
+						if pat.After(time.Now().UTC()) {
+							msg.nakWithDelayFN(pat.Sub(time.Now().UTC()))
+						}
+					}
+
 					resCh := make(chan error, 1)
 					go func() {
 						p.logger.Infof("Received subject=%s task=%s", queueName, msg.ID)
@@ -529,5 +538,6 @@ func payloadFromNatsMessage(msg *nats.Msg) (*TaskMessage, error) {
 	}
 
 	tp.ackFN = msg.Ack
+	tp.nakWithDelayFN = msg.NakWithDelay
 	return &tp, nil
 }

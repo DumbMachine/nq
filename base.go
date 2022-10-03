@@ -83,6 +83,10 @@ type TaskMessage struct {
 	// Use zero to indicate no deadline.
 	Deadline int64
 
+	// ProcessAt the date/time the task should be processed at.
+	// Use zero to indicate task is not a future task
+	ProcessAt int64
+
 	// CompletedAt is the time the task was processed successfully in Unix time,
 	// the number of seconds elapsed since January 1, 1970 UTC.
 	//
@@ -102,6 +106,9 @@ type TaskMessage struct {
 
 	// Function to acknowledge this TaskMessage when received as a subscription
 	ackFN func(opts ...nats.AckOpt) error
+
+	// nakWithDelayFN nack the message with a replay delay
+	nakWithDelayFN func(delay time.Duration, opts ...nats.AckOpt) error
 }
 
 func (msg *TaskMessage) GetStatus() string {
